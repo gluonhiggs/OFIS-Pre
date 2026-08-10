@@ -81,14 +81,17 @@ def _to_native_numbers(frame: pd.DataFrame) -> pd.DataFrame:
     st.column_config expects real numerics, so both fail with an opaque
     TypeError. Converting once here beats casting at every call site.
 
-    Only columns whose first non-null value is a Decimal are touched, so text
-    columns are left alone.
+    Only columns containing a Decimal are touched, so text columns are left
+    alone. Every non-null value is examined rather than just the first: a
+    column whose leading rows are null but which turns numeric later would
+    otherwise stay as objects and fail downstream in nlargest and in the
+    arithmetic in title_margin, both of which need real numerics.
     """
     for column in frame.columns:
         if frame[column].dtype != "object":
             continue
         populated = frame[column].dropna()
-        if len(populated) and isinstance(populated.iloc[0], Decimal):
+        if any(isinstance(value, Decimal) for value in populated):
             frame[column] = frame[column].astype(float)
     return frame
 
@@ -152,8 +155,13 @@ def load_reliability(season: int) -> pd.DataFrame:
 # --------------------------------------------------------------------------
 
 def colour_scale(constructors: list[str]) -> alt.Scale:
-    """Build an Altair scale mapping each constructor to its livery colour."""
-    ordered = sorted(set(constructors))
+    """Build an Altair scale mapping each constructor to its livery colour.
+
+    Nulls are dropped before sorting. A single missing constructor name would
+    otherwise raise comparing str to None, taking down both charts rather than
+    losing one series.
+    """
+    ordered = sorted({name for name in constructors if name is not None})
     return alt.Scale(
         domain=ordered,
         range=[CONSTRUCTOR_COLOURS.get(name, FALLBACK_COLOUR) for name in ordered],
@@ -184,12 +192,13 @@ def title_margin(progression: pd.DataFrame) -> tuple[str, float, float]:
     if finals.empty:
         return "—", 0.0, 0.0
     champion = finals.iloc[0]
-    runner_up_points = finals.iloc[1]["CUMULATIVE_POINTS"] if len(finals) > 1 else 0.0
-    return (
-        champion["DRIVER_NAME"],
-        float(champion["CUMULATIVE_POINTS"]),
-        float(champion["CUMULATIVE_POINTS"] - runner_up_points),
+    # Both sides are cast before subtracting. Mixing a Decimal that escaped
+    # conversion with the float default raises on the subtraction alone.
+    champion_points = float(champion["CUMULATIVE_POINTS"])
+    runner_up_points = (
+        float(finals.iloc[1]["CUMULATIVE_POINTS"]) if len(finals) > 1 else 0.0
     )
+    return champion["DRIVER_NAME"], champion_points, champion_points - runner_up_points
 
 
 # --------------------------------------------------------------------------
