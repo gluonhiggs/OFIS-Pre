@@ -1,0 +1,19 @@
+# Package pins for Streamlit in Snowflake.
+#
+# Without this file SiS resolves `streamlit` to its own default, which is older
+# than anything this app was written against and fails on load with
+# "Python Interpreter Error: TypeError: bad argument type for built-in operation".
+#
+# These two versions are the newest offered by the `snowflake` channel
+# (INFORMATION_SCHEMA.PACKAGES) and the app has been verified against them
+# headlessly via streamlit.testing.v1.AppTest.
+#
+# Only packages from the `snowflake` channel are permitted here; pandas and
+# snowflake-snowpark-python are always present and must not be listed.
+
+name: sf_env
+channels:
+  - snowflake
+dependencies:
+  - streamlit=1.52.0
+  - altair=6.0.0

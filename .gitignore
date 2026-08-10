@@ -3,3 +3,5 @@ data/
 __pycache__/
 *.pyc
 .venv/
+# Snowflake CLI build artifacts — a stale duplicate of streamlit/app.py
+output/
