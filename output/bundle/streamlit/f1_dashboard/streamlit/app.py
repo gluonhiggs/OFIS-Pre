@@ -16,8 +16,6 @@ Deploy: Snowsight -> Projects -> Streamlit -> + Streamlit App
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import altair as alt
 import pandas as pd
 import streamlit as st
@@ -70,27 +68,7 @@ def run_query(statement: str) -> pd.DataFrame:
     Every query in this app goes through here, so caching, error handling and
     logging have exactly one place to live.
     """
-    return _to_native_numbers(session.sql(statement).to_pandas())
-
-
-def _to_native_numbers(frame: pd.DataFrame) -> pd.DataFrame:
-    """Convert Snowflake NUMBER columns from Decimal to float.
-
-    A Snowflake NUMBER arrives as decimal.Decimal inside an object column.
-    Altair cannot serialise Decimal to the JSON it hands Vega-Lite, and
-    st.column_config expects real numerics, so both fail with an opaque
-    TypeError. Converting once here beats casting at every call site.
-
-    Only columns whose first non-null value is a Decimal are touched, so text
-    columns are left alone.
-    """
-    for column in frame.columns:
-        if frame[column].dtype != "object":
-            continue
-        populated = frame[column].dropna()
-        if len(populated) and isinstance(populated.iloc[0], Decimal):
-            frame[column] = frame[column].astype(float)
-    return frame
+    return session.sql(statement).to_pandas()
 
 
 def load_seasons() -> pd.DataFrame:

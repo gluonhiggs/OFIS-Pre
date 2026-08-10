@@ -1,0 +1,25 @@
+# Snowflake CLI project definition. Used only by `snow streamlit deploy`.
+#
+# The app is deployed by FR_F1_APP so that FR_F1_APP owns it. Streamlit in
+# Snowflake runs with owner's rights, so ownership decides what the running app
+# can reach: AR_F1_ANALYTICS_RO and nothing else. Deploying as the engineer
+# would leave the app able to read RAW and STAGING, and would show unmasked
+# dates of birth, which is precisely the claim the design makes it cannot do.
+#
+#   snow streamlit deploy -c GLUONHIGGS --role FR_F1_APP --replace
+
+definition_version: 2
+
+entities:
+  f1_dashboard:
+    type: streamlit
+    identifier:
+      name: F1_SEASON_ANALYSIS
+      schema: ANALYTICS
+      database: F1_DB
+    stage: F1_DB.ANALYTICS.STREAMLIT_STAGE
+    query_warehouse: WH_F1_BI
+    title: Formula 1 — season analysis
+    main_file: streamlit/app.py
+    artifacts:
+      - streamlit/app.py

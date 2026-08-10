@@ -109,8 +109,23 @@ GRANT USAGE ON WAREHOUSE WH_F1_BI TO ROLE FR_F1_APP;
    This is the answer to "how do you test a schema change safely", and it costs
    one statement.
    ============================================================================ */
+/* CREATE DATABASE is an account-level privilege that FR_F1_ENGINEER does not
+   hold, so this one statement escalates and hands the result back. Granting
+   CREATE DATABASE to the engineer instead would widen the role permanently for
+   the sake of a disposable test fixture. */
+USE ROLE ACCOUNTADMIN;
+
 CREATE OR REPLACE DATABASE F1_DB_DEV CLONE F1_DB
     COMMENT = 'Zero-copy clone for schema-change testing. Disposable.';
+
+GRANT OWNERSHIP ON DATABASE F1_DB_DEV TO ROLE FR_F1_ENGINEER;
+
+/* CREATE DATABASE implicitly switches the session onto the new database, so the
+   context set at the top of this script is now pointing at F1_DB_DEV. Restore it
+   before the verification queries, which reference V_DRIVER_PROFILE unqualified. */
+USE ROLE FR_F1_ENGINEER;
+USE DATABASE F1_DB;
+USE SCHEMA ANALYTICS;
 
 /* Two caveats worth knowing before relying on this:
      - Dynamic tables clone in a suspended state and need resuming.
@@ -125,14 +140,29 @@ CREATE OR REPLACE DATABASE F1_DB_DEV CLONE F1_DB
 SELECT DRIVER_CODE, FULL_NAME, DATE_OF_BIRTH FROM V_DRIVER_PROFILE
 WHERE DRIVER_CODE IS NOT NULL LIMIT 5;
 
+/* USE SECONDARY ROLES NONE is load-bearing, not tidiness. USE ROLE changes only
+   the primary role; every other role granted to the user stays active in the
+   session. A user who holds FR_F1_ENGINEER alongside FR_F1_APP therefore still
+   satisfies IS_ROLE_IN_SESSION('FR_F1_ENGINEER') and sees the unmasked date, so
+   without this line the test silently proves nothing. Separate users would not
+   need it; one user wearing every role does. */
 -- As the app role: date truncated to 1 January. Screenshot both.
 USE ROLE FR_F1_APP;
+USE SECONDARY ROLES NONE;
+/* WH_F1_TRANSFORM is the engineer's warehouse. With secondary roles dropped the
+   app role can no longer see it, and the session would fail with "no active
+   warehouse" rather than with anything about masking. */
+USE WAREHOUSE WH_F1_BI;
 SELECT DRIVER_CODE, FULL_NAME, DATE_OF_BIRTH FROM F1_DB.ANALYTICS.V_DRIVER_PROFILE
 WHERE DRIVER_CODE IS NOT NULL LIMIT 5;
 
 USE ROLE FR_F1_ENGINEER;
+USE SECONDARY ROLES ALL;
+USE WAREHOUSE WH_F1_TRANSFORM;
 
 -- Where is the PII.
+/* OBJECT_TYPE must be 'TABLE' here. Snowflake rejects 'VIEW' and asks for
+   'TABLE' for all table-like objects, views included. */
 SELECT * FROM TABLE(F1_DB.INFORMATION_SCHEMA.TAG_REFERENCES_ALL_COLUMNS(
-    'F1_DB.ANALYTICS.V_DRIVER_PROFILE', 'VIEW'
+    'F1_DB.ANALYTICS.V_DRIVER_PROFILE', 'TABLE'
 ));

@@ -283,6 +283,31 @@ WITH per_round AS (
         MIN(FINISH_POSITION) AS FINISH_POSITION
     FROM V_RACE_RESULT
     GROUP BY ALL
+),
+/* The running total is materialised here rather than inline below. A window
+   function may not be nested inside another window function's ORDER BY, so
+   CHAMPIONSHIP_POSITION has to rank over an already-computed column. */
+cumulative AS (
+    SELECT
+        SEASON_YEAR,
+        ROUND_NUMBER,
+        RACE_NAME,
+        RACE_DATE,
+        DRIVER_ID,
+        DRIVER_NAME,
+        DRIVER_CODE,
+        CONSTRUCTOR_NAME,
+        ROUND_POINTS,
+        FINISH_POSITION,
+        SUM(ROUND_POINTS) OVER (
+            PARTITION BY SEASON_YEAR, DRIVER_ID
+            ORDER BY ROUND_NUMBER
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS CUMULATIVE_POINTS,
+        LAG(FINISH_POSITION) OVER (
+            PARTITION BY SEASON_YEAR, DRIVER_ID ORDER BY ROUND_NUMBER
+        ) AS PREVIOUS_ROUND_FINISH
+    FROM per_round
 )
 SELECT
     SEASON_YEAR,
@@ -295,23 +320,13 @@ SELECT
     CONSTRUCTOR_NAME,
     ROUND_POINTS,
     FINISH_POSITION,
-    SUM(ROUND_POINTS) OVER (
-        PARTITION BY SEASON_YEAR, DRIVER_ID
-        ORDER BY ROUND_NUMBER
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) AS CUMULATIVE_POINTS,
+    CUMULATIVE_POINTS,
     RANK() OVER (
         PARTITION BY SEASON_YEAR, ROUND_NUMBER
-        ORDER BY SUM(ROUND_POINTS) OVER (
-            PARTITION BY SEASON_YEAR, DRIVER_ID
-            ORDER BY ROUND_NUMBER
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) DESC
+        ORDER BY CUMULATIVE_POINTS DESC
     ) AS CHAMPIONSHIP_POSITION,
-    LAG(FINISH_POSITION) OVER (
-        PARTITION BY SEASON_YEAR, DRIVER_ID ORDER BY ROUND_NUMBER
-    ) AS PREVIOUS_ROUND_FINISH
-FROM per_round;
+    PREVIOUS_ROUND_FINISH
+FROM cumulative;
 
 /* A driver who misses a round has no row for it, so the running total carries
    forward on their next appearance rather than resetting. That is the correct
